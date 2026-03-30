@@ -1,0 +1,9 @@
+{
+  "active": true,
+  "instruction": "swap 0.001 eth to usdc every 2 minutes",
+  "interval_minutes": 2,
+  "from_token": "ETH",
+  "to_token": "USDC",
+  "amount_wei": "1000000000000000",
+  "updated_at": "2026-03-30T12:03:30.371Z"
+}
