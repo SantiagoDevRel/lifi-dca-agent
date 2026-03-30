@@ -6,6 +6,6 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST() {
-  stopLoop()
-  return NextResponse.json({ status: state.status })
+  await stopLoop()
+  return NextResponse.json({ status: state.status, summary: state.summary })
 }
