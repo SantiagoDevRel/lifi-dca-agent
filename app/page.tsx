@@ -1,10 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -73,19 +72,26 @@ const RULE_LABELS: Record<RuleType, string> = {
   price_time_combo: 'Price + Time',
   target_accumulation: 'Target Accumulation',
 }
-const RULE_BADGE_CLASS: Record<RuleType, string> = {
-  time_dca: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  budget_session: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  price_trigger: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  price_time_combo: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  target_accumulation: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+const RULE_DESCRIPTIONS: Record<RuleType, string> = {
+  time_dca: 'Swap a fixed amount at regular intervals, indefinitely.',
+  budget_session: 'Swap at regular intervals for a fixed duration.',
+  price_trigger: 'Execute a swap when price crosses a threshold.',
+  price_time_combo: 'Swap at intervals, but skip if price condition is not met.',
+  target_accumulation: 'Buy at intervals until you hold a target balance.',
+}
+const RULE_BADGE: Record<RuleType, string> = {
+  time_dca: 'bg-sky-500/10 text-sky-300 border-sky-500/20',
+  budget_session: 'bg-sky-500/10 text-sky-300 border-sky-500/20',
+  price_trigger: 'bg-amber-500/10 text-amber-300 border-amber-500/20',
+  price_time_combo: 'bg-amber-500/10 text-amber-300 border-amber-500/20',
+  target_accumulation: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
 }
 const LOG_COLOR: Record<LogLevel, string> = {
-  info: 'text-zinc-400', tool: 'text-blue-400', error: 'text-red-400',
-  claude: 'text-emerald-400', tx: 'text-yellow-400',
+  info: 'text-zinc-400', tool: 'text-sky-400', error: 'text-red-400',
+  claude: 'text-emerald-400', tx: 'text-amber-400',
 }
 const LOG_PREFIX: Record<LogLevel, string> = {
-  info: '   ', tool: '⚙  ', error: '✗  ', claude: '◈  ', tx: '⛓  ',
+  info: '  ', tool: '⚙ ', error: '✗ ', claude: '◈ ', tx: '⛓ ',
 }
 const TOKENS = ['ETH', 'USDC', 'WBTC', 'cbETH', 'USDbC', 'DAI', 'USDT']
 
@@ -113,79 +119,72 @@ function buildInstruction(tab: RuleType, f: FormState): string {
     case 'budget_session':
       return `swap ${amount} ${fromToken} to ${toToken} every ${intervalValue} ${intervalUnit} for ${durationValue} ${durationUnit}`
     case 'price_trigger':
-      return `swap ${amount} ${fromToken} to ${toToken} when price is ${condition} $${priceThreshold}`
+      return `swap ${amount} ${fromToken} to ${toToken} when ${fromToken} price is ${condition} $${priceThreshold}`
     case 'price_time_combo':
-      return `swap ${amount} ${fromToken} to ${toToken} every ${intervalValue} ${intervalUnit} only if price is ${condition} $${priceThreshold}`
+      return `swap ${amount} ${fromToken} to ${toToken} every ${intervalValue} ${intervalUnit} only if ${fromToken} price is ${condition} $${priceThreshold}`
     case 'target_accumulation':
       return `buy ${toToken} every ${intervalValue} ${intervalUnit} using ${amount} ${fromToken} until I hold ${targetAmount} ${toToken}`
   }
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Design tokens ────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: AgentStatus }) {
-  if (status === 'running') return <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse">● Running</Badge>
-  if (status === 'paused') return <Badge className="bg-yellow-500/20 text-yellow-300 border-yellow-500/40">⏸ Paused</Badge>
-  return <Badge variant="secondary">○ Idle</Badge>
+const field = 'h-10 w-full rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-500 focus:border-zinc-500'
+
+// ─── Atom components ──────────────────────────────────────────────────────────
+
+function Fl({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-xs text-zinc-500">{label}</Label>
+      {children}
+    </div>
+  )
 }
 
-function TokenSelect({ value, onChange, exclude }: { value: string; onChange: (v: string) => void; exclude?: string }) {
+function TokenPick({ value, onChange, exclude }: { value: string; onChange: (v: string) => void; exclude?: string }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-28 bg-zinc-800 border-zinc-700 h-9 text-sm">
+      <SelectTrigger className={field}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent className="bg-zinc-800 border-zinc-700">
         {TOKENS.filter(t => t !== exclude).map(t => (
-          <SelectItem key={t} value={t} className="text-sm">{t}</SelectItem>
+          <SelectItem key={t} value={t} className="text-zinc-200">{t}</SelectItem>
         ))}
       </SelectContent>
     </Select>
   )
 }
 
-function IntervalPicker({ f, onChange }: { f: FormState; onChange: (patch: Partial<FormState>) => void }) {
+function Interval({ f, patch }: { f: FormState; patch: (p: Partial<FormState>) => void }) {
   return (
     <div className="flex gap-2">
-      <Input type="number" min="1" value={f.intervalValue} onChange={e => onChange({ intervalValue: e.target.value })}
-        className="w-20 bg-zinc-800 border-zinc-700 h-9 text-sm" />
-      <Select value={f.intervalUnit} onValueChange={v => onChange({ intervalUnit: v as FormState['intervalUnit'] })}>
-        <SelectTrigger className="w-28 bg-zinc-800 border-zinc-700 h-9 text-sm"><SelectValue /></SelectTrigger>
+      <input type="number" min="1" value={f.intervalValue}
+        onChange={e => patch({ intervalValue: e.target.value })}
+        className={`${field} w-24 flex-none`} />
+      <Select value={f.intervalUnit} onValueChange={v => patch({ intervalUnit: v as FormState['intervalUnit'] })}>
+        <SelectTrigger className={field}><SelectValue /></SelectTrigger>
         <SelectContent className="bg-zinc-800 border-zinc-700">
-          <SelectItem value="seconds">seconds</SelectItem>
-          <SelectItem value="minutes">minutes</SelectItem>
-          <SelectItem value="hours">hours</SelectItem>
+          <SelectItem value="seconds" className="text-zinc-200">seconds</SelectItem>
+          <SelectItem value="minutes" className="text-zinc-200">minutes</SelectItem>
+          <SelectItem value="hours" className="text-zinc-200">hours</SelectItem>
         </SelectContent>
       </Select>
     </div>
   )
 }
 
-function TokenPairRow({ f, onChange }: { f: FormState; onChange: (patch: Partial<FormState>) => void }) {
+function PairRow({ f, patch }: { f: FormState; patch: (p: Partial<FormState>) => void }) {
   return (
     <div className="flex items-end gap-3">
-      <div className="space-y-1">
-        <Label className="text-xs text-zinc-400">From</Label>
-        <TokenSelect value={f.fromToken} onChange={v => onChange({ fromToken: v })} exclude={f.toToken} />
-      </div>
-      <span className="text-zinc-500 mb-2">→</span>
-      <div className="space-y-1">
-        <Label className="text-xs text-zinc-400">To</Label>
-        <TokenSelect value={f.toToken} onChange={v => onChange({ toToken: v })} exclude={f.fromToken} />
-      </div>
-    </div>
-  )
-}
-
-function AmountRow({ f, onChange }: { f: FormState; onChange: (patch: Partial<FormState>) => void }) {
-  return (
-    <div className="space-y-1">
-      <Label className="text-xs text-zinc-400">Amount per swap</Label>
-      <div className="flex gap-2 items-center">
-        <Input type="number" step="0.0001" value={f.amount} onChange={e => onChange({ amount: e.target.value })}
-          className="w-32 bg-zinc-800 border-zinc-700 h-9 text-sm" />
-        <span className="text-xs text-zinc-500">{f.fromToken}</span>
-      </div>
+      <Fl label="From">
+        <TokenPick value={f.fromToken} onChange={v => patch({ fromToken: v })} exclude={f.toToken} />
+      </Fl>
+      <div className="pb-2.5 text-zinc-600 text-base select-none shrink-0">→</div>
+      <Fl label="To">
+        <TokenPick value={f.toToken} onChange={v => patch({ toToken: v })} exclude={f.fromToken} />
+      </Fl>
     </div>
   )
 }
@@ -203,12 +202,10 @@ export default function HomePage() {
   const [successfulSwaps, setSuccessfulSwaps] = useState(0)
   const [elapsedMin, setElapsedMin] = useState(0)
 
-  // Form
   const [activeTab, setActiveTab] = useState<RuleType>('time_dca')
   const [form, setForm] = useState<FormState>(DEFAULT_FORM)
-  const patchForm = (patch: Partial<FormState>) => setForm(f => ({ ...f, ...patch }))
+  const patch = (p: Partial<FormState>) => setForm(f => ({ ...f, ...p }))
 
-  // UI state
   const [parsing, setParsing] = useState(false)
   const [apiError, setApiError] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -219,10 +216,8 @@ export default function HomePage() {
   const [updating, setUpdating] = useState(false)
   const [updateResult, setUpdateResult] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
-
   const logEndRef = useRef<HTMLDivElement>(null)
 
-  // ── Initial status ────────────────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/status').then(r => r.json()).then(d => {
       setStatus(d.status); setConfig(d.config); setErrors(d.errors ?? [])
@@ -231,7 +226,6 @@ export default function HomePage() {
     }).catch(console.error)
   }, [])
 
-  // ── SSE log stream ────────────────────────────────────────────────────────
   useEffect(() => {
     const es = new EventSource('/api/logs')
     es.onmessage = e => {
@@ -244,7 +238,6 @@ export default function HomePage() {
     return () => es.close()
   }, [])
 
-  // ── Poll status while running ─────────────────────────────────────────────
   useEffect(() => {
     if (status === 'idle' && !config) return
     const id = setInterval(() => {
@@ -259,24 +252,19 @@ export default function HomePage() {
     return () => clearInterval(id)
   }, [status, config])
 
-  // ── Swap history polling ──────────────────────────────────────────────────
   useEffect(() => {
     if (status !== 'running' && status !== 'paused') return
     const id = setInterval(async () => {
       const r = await fetch('/api/status')
       const d = await r.json()
-      // Swap records come from status for simplicity
       if (d.swaps) setSwaps(d.swaps)
     }, 5000)
     return () => clearInterval(id)
   }, [status])
 
-  // ── Auto-scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (autoScroll) logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs, autoScroll])
-
-  // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleParse = async () => {
     const instruction = buildInstruction(activeTab, form)
@@ -284,8 +272,7 @@ export default function HomePage() {
     setParsing(true); setApiError('')
     try {
       const res = await fetch('/api/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instruction }),
       })
       const data = await res.json()
@@ -309,23 +296,11 @@ export default function HomePage() {
     finally { setConfirming(false); setConfirmOpen(false) }
   }
 
-  const handlePause = async () => {
-    const r = await fetch('/api/pause', { method: 'POST' })
-    if (r.ok) setStatus('paused')
-  }
-
-  const handleResume = async () => {
-    const r = await fetch('/api/run', { method: 'POST' })
-    if (r.ok) setStatus('running')
-  }
-
+  const handlePause = async () => { const r = await fetch('/api/pause', { method: 'POST' }); if (r.ok) setStatus('paused') }
+  const handleResume = async () => { const r = await fetch('/api/run', { method: 'POST' }); if (r.ok) setStatus('running') }
   const handleStop = async () => {
     const r = await fetch('/api/stop', { method: 'POST' })
-    if (r.ok) {
-      const d = await r.json()
-      setStatus('idle')
-      if (d.summary) setSummary(d.summary)
-    }
+    if (r.ok) { const d = await r.json(); setStatus('idle'); if (d.summary) setSummary(d.summary) }
   }
 
   const handleUpdate = async () => {
@@ -333,8 +308,7 @@ export default function HomePage() {
     setUpdating(true); setUpdateResult('')
     try {
       const res = await fetch('/api/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instruction: updateText }),
       })
       const data = await res.json()
@@ -344,444 +318,482 @@ export default function HomePage() {
     finally { setUpdating(false) }
   }
 
-  // ── Budget progress ───────────────────────────────────────────────────────
   const budgetProgress = config?.total_swaps_planned
     ? Math.min(100, (successfulSwaps / config.total_swaps_planned) * 100)
     : config?.duration_minutes
       ? Math.min(100, (elapsedMin / config.duration_minutes) * 100)
       : 0
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const statusDot = status === 'running' ? 'bg-emerald-400 animate-pulse' : status === 'paused' ? 'bg-amber-400' : 'bg-zinc-600'
 
   return (
-    <div className="dark min-h-screen bg-background text-foreground">
-      <div className="max-w-7xl mx-auto p-4 md:p-6">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="max-w-6xl mx-auto px-6 py-6">
 
-        {/* Header */}
-        <header className="flex items-center justify-between mb-6">
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold tracking-tight">LiFi DCA Agent</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Autonomous dollar-cost averaging on Base mainnet</p>
+            <h1 className="text-base font-semibold text-white tracking-tight">LiFi DCA Agent</h1>
+            <p className="text-xs text-zinc-500 mt-0.5">Autonomous dollar-cost averaging on Base mainnet</p>
           </div>
-          <StatusBadge status={status} />
-        </header>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${statusDot}`} />
+            <span className="text-sm text-zinc-400 capitalize">{status}</span>
+          </div>
+        </div>
 
-        {/* Two-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* ── Two columns ── */}
+        <div className="grid grid-cols-2 gap-5">
 
-          {/* ── LEFT COLUMN ─────────────────────────────────────────────── */}
-          <div className="space-y-5">
+          {/* ── LEFT ── */}
+          <div className="flex flex-col gap-5">
 
-            {/* Rule Configurator */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                  Rule Configurator
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Tabs value={activeTab} onValueChange={v => setActiveTab(v as RuleType)}>
-                  <TabsList className="grid grid-cols-5 h-9 text-xs bg-zinc-800/60 w-full">
-                    <TabsTrigger value="time_dca" className="text-xs px-1">Time</TabsTrigger>
-                    <TabsTrigger value="budget_session" className="text-xs px-1">Budget</TabsTrigger>
-                    <TabsTrigger value="price_trigger" className="text-xs px-1">Price</TabsTrigger>
-                    <TabsTrigger value="price_time_combo" className="text-xs px-1">Combo</TabsTrigger>
-                    <TabsTrigger value="target_accumulation" className="text-xs px-1">Target</TabsTrigger>
-                  </TabsList>
+            {/* Configurator card */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <p className="text-[11px] font-medium tracking-[0.15em] text-zinc-500 uppercase mb-4">Rule Configurator</p>
 
-                  {/* Time DCA */}
-                  <TabsContent value="time_dca" className="space-y-3 pt-3">
-                    <p className="text-xs text-muted-foreground">Swap a fixed amount at regular intervals.</p>
-                    <TokenPairRow f={form} onChange={patchForm} />
-                    <AmountRow f={form} onChange={patchForm} />
-                    <div className="space-y-1">
-                      <Label className="text-xs text-zinc-400">Interval</Label>
-                      <IntervalPicker f={form} onChange={patchForm} />
+              <Tabs value={activeTab} onValueChange={v => setActiveTab(v as RuleType)}>
+                {/* Tab list */}
+                <TabsList className="w-full grid grid-cols-5 bg-zinc-800 rounded-lg p-1 h-auto gap-1">
+                  {([
+                    ['time_dca', 'Time'],
+                    ['budget_session', 'Budget'],
+                    ['price_trigger', 'Price'],
+                    ['price_time_combo', 'Combo'],
+                    ['target_accumulation', 'Target'],
+                  ] as [RuleType, string][]).map(([val, label]) => (
+                    <TabsTrigger key={val} value={val}
+                      className="py-1.5 text-xs rounded-md
+                        data-[state=active]:bg-zinc-700 data-[state=active]:text-white data-[state=active]:shadow-none
+                        data-[state=inactive]:text-zinc-500 data-[state=inactive]:bg-transparent
+                        hover:text-zinc-300 transition-colors">
+                      {label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+
+                {/* Description below tabs */}
+                <p className="text-xs text-zinc-500 mt-3 mb-4">{RULE_DESCRIPTIONS[activeTab]}</p>
+
+                {/* ── Time DCA ── */}
+                <TabsContent value="time_dca" className="mt-0 space-y-4">
+                  <PairRow f={form} patch={patch} />
+                  <Fl label="Amount per swap">
+                    <div className="flex items-center gap-2">
+                      <input type="number" step="0.0001" value={form.amount}
+                        onChange={e => patch({ amount: e.target.value })}
+                        className={`${field} flex-1`} />
+                      <span className="text-sm text-zinc-500 w-10 shrink-0">{form.fromToken}</span>
                     </div>
-                  </TabsContent>
+                  </Fl>
+                  <Fl label="Interval"><Interval f={form} patch={patch} /></Fl>
+                </TabsContent>
 
-                  {/* Budget Session */}
-                  <TabsContent value="budget_session" className="space-y-3 pt-3">
-                    <p className="text-xs text-muted-foreground">Swap at regular intervals for a fixed duration.</p>
-                    <TokenPairRow f={form} onChange={patchForm} />
-                    <AmountRow f={form} onChange={patchForm} />
-                    <div className="flex gap-4">
-                      <div className="space-y-1 flex-1">
-                        <Label className="text-xs text-zinc-400">Interval</Label>
-                        <IntervalPicker f={form} onChange={patchForm} />
+                {/* ── Budget Session ── */}
+                <TabsContent value="budget_session" className="mt-0 space-y-4">
+                  <PairRow f={form} patch={patch} />
+                  <Fl label="Amount per swap">
+                    <div className="flex items-center gap-2">
+                      <input type="number" step="0.0001" value={form.amount}
+                        onChange={e => patch({ amount: e.target.value })}
+                        className={`${field} flex-1`} />
+                      <span className="text-sm text-zinc-500 w-10 shrink-0">{form.fromToken}</span>
+                    </div>
+                  </Fl>
+                  <Fl label="Interval"><Interval f={form} patch={patch} /></Fl>
+                  <Fl label="Total duration">
+                    <div className="flex gap-2">
+                      <input type="number" min="1" value={form.durationValue}
+                        onChange={e => patch({ durationValue: e.target.value })}
+                        className={`${field} w-24 flex-none`} />
+                      <Select value={form.durationUnit} onValueChange={v => patch({ durationUnit: v as 'minutes' | 'hours' })}>
+                        <SelectTrigger className={field}><SelectValue /></SelectTrigger>
+                        <SelectContent className="bg-zinc-800 border-zinc-700">
+                          <SelectItem value="minutes" className="text-zinc-200">minutes</SelectItem>
+                          <SelectItem value="hours" className="text-zinc-200">hours</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </Fl>
+                  {(() => {
+                    const iMin = parseFloat(form.intervalValue) * (form.intervalUnit === 'hours' ? 60 : form.intervalUnit === 'seconds' ? 1/60 : 1)
+                    const dMin = parseFloat(form.durationValue) * (form.durationUnit === 'hours' ? 60 : 1)
+                    const n = iMin > 0 ? Math.floor(dMin / iMin) : 0
+                    return n > 0 ? (
+                      <div className="rounded-lg bg-zinc-800/50 border border-zinc-700/40 px-4 py-3 text-xs text-zinc-400 space-y-1">
+                        <div className="flex justify-between"><span>Total swaps</span><span className="text-zinc-200 tabular-nums">{n}</span></div>
+                        <div className="flex justify-between"><span>Total {form.fromToken}</span><span className="text-zinc-200 tabular-nums">{(parseFloat(form.amount) * n).toFixed(6)}</span></div>
                       </div>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-zinc-400">Duration</Label>
-                      <div className="flex gap-2">
-                        <Input type="number" min="1" value={form.durationValue}
-                          onChange={e => patchForm({ durationValue: e.target.value })}
-                          className="w-20 bg-zinc-800 border-zinc-700 h-9 text-sm" />
-                        <Select value={form.durationUnit} onValueChange={v => patchForm({ durationUnit: v as 'minutes' | 'hours' })}>
-                          <SelectTrigger className="w-28 bg-zinc-800 border-zinc-700 h-9 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent className="bg-zinc-800 border-zinc-700">
-                            <SelectItem value="minutes">minutes</SelectItem>
-                            <SelectItem value="hours">hours</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    {/* Calculated totals */}
-                    {(() => {
-                      const intMin = parseFloat(form.intervalValue) * (form.intervalUnit === 'hours' ? 60 : form.intervalUnit === 'seconds' ? 1/60 : 1)
-                      const durMin = parseFloat(form.durationValue) * (form.durationUnit === 'hours' ? 60 : 1)
-                      const numSwaps = intMin > 0 ? Math.floor(durMin / intMin) : 0
-                      const total = (parseFloat(form.amount) * numSwaps).toFixed(6)
-                      return numSwaps > 0 ? (
-                        <div className="rounded-md bg-zinc-800/50 px-3 py-2 text-xs text-zinc-400 space-y-0.5">
-                          <div className="flex justify-between"><span>Total swaps</span><span className="text-zinc-200">{numSwaps}</span></div>
-                          <div className="flex justify-between"><span>Total {form.fromToken}</span><span className="text-zinc-200">{total}</span></div>
-                        </div>
-                      ) : null
-                    })()}
-                  </TabsContent>
+                    ) : null
+                  })()}
+                </TabsContent>
 
-                  {/* Price Trigger */}
-                  <TabsContent value="price_trigger" className="space-y-3 pt-3">
-                    <p className="text-xs text-muted-foreground">Execute a swap when price crosses a threshold.</p>
-                    <TokenPairRow f={form} onChange={patchForm} />
-                    <AmountRow f={form} onChange={patchForm} />
-                    <div className="space-y-1">
-                      <Label className="text-xs text-zinc-400">Price condition</Label>
-                      <div className="flex gap-2 items-center">
-                        <Select value={form.condition} onValueChange={v => patchForm({ condition: v as 'above' | 'below' })}>
-                          <SelectTrigger className="w-28 bg-zinc-800 border-zinc-700 h-9 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent className="bg-zinc-800 border-zinc-700">
-                            <SelectItem value="above">above</SelectItem>
-                            <SelectItem value="below">below</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <span className="text-zinc-500 text-sm">$</span>
-                        <Input type="number" placeholder="e.g. 3000" value={form.priceThreshold}
-                          onChange={e => patchForm({ priceThreshold: e.target.value })}
-                          className="w-36 bg-zinc-800 border-zinc-700 h-9 text-sm" />
-                      </div>
+                {/* ── Price Trigger ── */}
+                <TabsContent value="price_trigger" className="mt-0 space-y-4">
+                  <PairRow f={form} patch={patch} />
+                  <Fl label="Amount per swap">
+                    <div className="flex items-center gap-2">
+                      <input type="number" step="0.0001" value={form.amount}
+                        onChange={e => patch({ amount: e.target.value })}
+                        className={`${field} flex-1`} />
+                      <span className="text-sm text-zinc-500 w-10 shrink-0">{form.fromToken}</span>
                     </div>
-                  </TabsContent>
+                  </Fl>
+                  <Fl label={`Execute when ${form.fromToken} price is`}>
+                    <div className="flex items-center gap-2">
+                      <Select value={form.condition} onValueChange={v => patch({ condition: v as 'above' | 'below' })}>
+                        <SelectTrigger className={`${field} w-28 flex-none`}><SelectValue /></SelectTrigger>
+                        <SelectContent className="bg-zinc-800 border-zinc-700">
+                          <SelectItem value="above" className="text-zinc-200">above</SelectItem>
+                          <SelectItem value="below" className="text-zinc-200">below</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span className="text-zinc-500 text-sm shrink-0">USD $</span>
+                      <input type="number" placeholder="3000" value={form.priceThreshold}
+                        onChange={e => patch({ priceThreshold: e.target.value })}
+                        className={`${field} flex-1`} />
+                    </div>
+                  </Fl>
+                </TabsContent>
 
-                  {/* Price + Time Combo */}
-                  <TabsContent value="price_time_combo" className="space-y-3 pt-3">
-                    <p className="text-xs text-muted-foreground">Swap at regular intervals, but only if price condition is met.</p>
-                    <TokenPairRow f={form} onChange={patchForm} />
-                    <AmountRow f={form} onChange={patchForm} />
-                    <div className="space-y-1">
-                      <Label className="text-xs text-zinc-400">Interval</Label>
-                      <IntervalPicker f={form} onChange={patchForm} />
+                {/* ── Price + Time ── */}
+                <TabsContent value="price_time_combo" className="mt-0 space-y-4">
+                  <PairRow f={form} patch={patch} />
+                  <Fl label="Amount per swap">
+                    <div className="flex items-center gap-2">
+                      <input type="number" step="0.0001" value={form.amount}
+                        onChange={e => patch({ amount: e.target.value })}
+                        className={`${field} flex-1`} />
+                      <span className="text-sm text-zinc-500 w-10 shrink-0">{form.fromToken}</span>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-zinc-400">Only execute if price is</Label>
-                      <div className="flex gap-2 items-center">
-                        <Select value={form.condition} onValueChange={v => patchForm({ condition: v as 'above' | 'below' })}>
-                          <SelectTrigger className="w-28 bg-zinc-800 border-zinc-700 h-9 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent className="bg-zinc-800 border-zinc-700">
-                            <SelectItem value="above">above</SelectItem>
-                            <SelectItem value="below">below</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <span className="text-zinc-500 text-sm">$</span>
-                        <Input type="number" placeholder="e.g. 3000" value={form.priceThreshold}
-                          onChange={e => patchForm({ priceThreshold: e.target.value })}
-                          className="w-36 bg-zinc-800 border-zinc-700 h-9 text-sm" />
-                      </div>
+                  </Fl>
+                  <Fl label="Interval"><Interval f={form} patch={patch} /></Fl>
+                  <Fl label={`Skip if ${form.fromToken} price is`}>
+                    <div className="flex items-center gap-2">
+                      <Select value={form.condition} onValueChange={v => patch({ condition: v as 'above' | 'below' })}>
+                        <SelectTrigger className={`${field} w-28 flex-none`}><SelectValue /></SelectTrigger>
+                        <SelectContent className="bg-zinc-800 border-zinc-700">
+                          <SelectItem value="above" className="text-zinc-200">above</SelectItem>
+                          <SelectItem value="below" className="text-zinc-200">below</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span className="text-zinc-500 text-sm shrink-0">USD $</span>
+                      <input type="number" placeholder="3000" value={form.priceThreshold}
+                        onChange={e => patch({ priceThreshold: e.target.value })}
+                        className={`${field} flex-1`} />
                     </div>
-                  </TabsContent>
+                  </Fl>
+                </TabsContent>
 
-                  {/* Target Accumulation */}
-                  <TabsContent value="target_accumulation" className="space-y-3 pt-3">
-                    <p className="text-xs text-muted-foreground">Buy at regular intervals until you hold a target amount.</p>
-                    <TokenPairRow f={form} onChange={patchForm} />
-                    <AmountRow f={form} onChange={patchForm} />
-                    <div className="space-y-1">
-                      <Label className="text-xs text-zinc-400">Interval</Label>
-                      <IntervalPicker f={form} onChange={patchForm} />
+                {/* ── Target Accumulation ── */}
+                <TabsContent value="target_accumulation" className="mt-0 space-y-4">
+                  <PairRow f={form} patch={patch} />
+                  <Fl label="Amount per swap">
+                    <div className="flex items-center gap-2">
+                      <input type="number" step="0.0001" value={form.amount}
+                        onChange={e => patch({ amount: e.target.value })}
+                        className={`${field} flex-1`} />
+                      <span className="text-sm text-zinc-500 w-10 shrink-0">{form.fromToken}</span>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-zinc-400">Target balance ({form.toToken})</Label>
-                      <Input type="number" placeholder="e.g. 100" value={form.targetAmount}
-                        onChange={e => patchForm({ targetAmount: e.target.value })}
-                        className="w-36 bg-zinc-800 border-zinc-700 h-9 text-sm" />
+                  </Fl>
+                  <Fl label="Interval"><Interval f={form} patch={patch} /></Fl>
+                  <Fl label={`Stop when ${form.toToken} balance reaches`}>
+                    <div className="flex items-center gap-2">
+                      <input type="number" placeholder="100" value={form.targetAmount}
+                        onChange={e => patch({ targetAmount: e.target.value })}
+                        className={`${field} w-36 flex-none`} />
+                      <span className="text-sm text-zinc-500">{form.toToken}</span>
                     </div>
-                  </TabsContent>
-                </Tabs>
+                  </Fl>
+                </TabsContent>
+              </Tabs>
 
-                {/* Error alert */}
-                {apiError && (
-                  <Alert variant="destructive" className="py-2">
-                    <AlertDescription className="text-xs">{apiError}</AlertDescription>
-                  </Alert>
-                )}
-
-                {/* Control buttons */}
-                <Separator className="my-1" />
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={handleParse} disabled={parsing || status === 'running'}
-                    variant="secondary" size="sm" className="gap-1.5">
-                    {parsing ? <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />Parsing...</> : 'Configure'}
-                  </Button>
-                  <Button onClick={status === 'paused' ? handleResume : () => {}}
-                    disabled={!config || status === 'running' || status === 'idle'}
-                    size="sm" className="bg-emerald-700 hover:bg-emerald-600 text-white gap-1">
-                    ▶ Resume
-                  </Button>
-                  <Button onClick={handlePause} disabled={status !== 'running'}
-                    size="sm" className="bg-yellow-700 hover:bg-yellow-600 text-white">
-                    ⏸ Pause
-                  </Button>
-                  <Button onClick={handleStop} disabled={status === 'idle'}
-                    variant="destructive" size="sm">
-                    ■ Stop
-                  </Button>
+              {/* Error */}
+              {apiError && (
+                <div className="mt-4 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
+                  {apiError}
                 </div>
-              </CardContent>
-            </Card>
+              )}
 
-            {/* Active Session */}
-            {(status === 'running' || status === 'paused') && config && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Active Session</CardTitle>
-                    <Badge className={RULE_BADGE_CLASS[config.rule_type]}>{RULE_LABELS[config.rule_type]}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-xs text-zinc-400 font-mono">{config.instruction}</p>
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div className="rounded-md bg-zinc-800/50 py-2">
-                      <div className="text-lg font-bold">{successfulSwaps}</div>
-                      <div className="text-xs text-muted-foreground">Swaps done</div>
-                    </div>
-                    <div className="rounded-md bg-zinc-800/50 py-2">
-                      <div className="text-lg font-bold">{config.total_swaps_planned ?? '∞'}</div>
-                      <div className="text-xs text-muted-foreground">Total planned</div>
-                    </div>
-                    <div className="rounded-md bg-zinc-800/50 py-2">
-                      <div className="text-lg font-bold">{elapsedMin.toFixed(0)}m</div>
-                      <div className="text-xs text-muted-foreground">Elapsed</div>
-                    </div>
+              {/* Buttons */}
+              <Separator className="my-4 bg-zinc-800" />
+              <div className="flex gap-2">
+                <button onClick={handleParse} disabled={parsing || status === 'running'}
+                  className="h-9 px-5 rounded-lg bg-white text-zinc-900 text-sm font-medium hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
+                  {parsing && <span className="w-3.5 h-3.5 rounded-full border-2 border-zinc-400 border-t-transparent animate-spin" />}
+                  Configure
+                </button>
+                <button onClick={status === 'paused' ? handleResume : () => {}}
+                  disabled={!config || status !== 'paused'}
+                  className="h-9 px-5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  Resume
+                </button>
+                <button onClick={handlePause} disabled={status !== 'running'}
+                  className="h-9 px-5 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  Pause
+                </button>
+                <button onClick={handleStop} disabled={status === 'idle'}
+                  className="h-9 px-5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  Stop
+                </button>
+              </div>
+            </div>
+
+            {/* Session status card — always visible */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 flex-1">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[11px] font-medium tracking-[0.15em] text-zinc-500 uppercase">Session Status</p>
+                {config && <Badge className={`text-[10px] px-2 py-0.5 ${RULE_BADGE[config.rule_type]}`}>{RULE_LABELS[config.rule_type]}</Badge>}
+              </div>
+
+              {!config || status === 'idle' ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-2">
+                  <div className="text-3xl opacity-10">◎</div>
+                  <p className="text-xs text-zinc-600">No active session</p>
+                  <p className="text-xs text-zinc-700">Configure a rule above to begin</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-xs text-zinc-500 font-mono leading-relaxed break-all">{config.instruction}</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { value: successfulSwaps, label: 'Done' },
+                      { value: config.total_swaps_planned ?? '∞', label: 'Planned' },
+                      { value: `${elapsedMin.toFixed(0)}m`, label: 'Elapsed' },
+                    ].map(({ value, label }) => (
+                      <div key={label} className="rounded-lg bg-zinc-800/50 border border-zinc-700/30 py-3 text-center">
+                        <div className="text-lg font-semibold tabular-nums text-zinc-100">{value}</div>
+                        <div className="text-[11px] text-zinc-500 mt-0.5">{label}</div>
+                      </div>
+                    ))}
                   </div>
                   {config.rule_type === 'budget_session' && config.total_swaps_planned && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Budget consumed</span>
-                        <span>{successfulSwaps} / {config.total_swaps_planned} swaps</span>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs text-zinc-500">
+                        <span>Progress</span>
+                        <span className="tabular-nums">{successfulSwaps} / {config.total_swaps_planned}</span>
                       </div>
-                      <Progress value={budgetProgress} className="h-1.5" />
+                      <Progress value={budgetProgress} className="h-1 bg-zinc-800" />
                     </div>
                   )}
                   {config.rule_type === 'budget_session' && config.duration_minutes && !config.total_swaps_planned && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Time elapsed</span>
-                        <span>{elapsedMin.toFixed(1)} / {config.duration_minutes} min</span>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs text-zinc-500">
+                        <span>Time</span>
+                        <span className="tabular-nums">{elapsedMin.toFixed(1)} / {config.duration_minutes} min</span>
                       </div>
-                      <Progress value={budgetProgress} className="h-1.5" />
+                      <Progress value={budgetProgress} className="h-1 bg-zinc-800" />
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            )}
 
-            {/* Mid-session Update */}
-            {(status === 'running' || status === 'paused') && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Mid-Session Update</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <p className="text-xs text-muted-foreground">Update interval, amount, or duration while running. Cannot switch rule type.</p>
-                  <div className="flex gap-2">
-                    <Input value={updateText} onChange={e => setUpdateText(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && !updating && handleUpdate()}
-                      placeholder='e.g. "change interval to 3 minutes"'
-                      className="bg-zinc-800 border-zinc-700 text-sm h-9 flex-1" />
-                    <Button onClick={handleUpdate} disabled={updating || !updateText.trim()}
-                      size="sm" variant="secondary">
-                      {updating ? '...' : 'Send'}
-                    </Button>
+                  {/* Mid-session update */}
+                  <Separator className="bg-zinc-800" />
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-medium tracking-[0.15em] text-zinc-500 uppercase">Update Session</p>
+                    <div className="flex gap-2">
+                      <input value={updateText} onChange={e => setUpdateText(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && !updating && handleUpdate()}
+                        placeholder='e.g. "change interval to 3 minutes"'
+                        className={`${field} flex-1`} />
+                      <button onClick={handleUpdate} disabled={updating || !updateText.trim()}
+                        className="h-10 px-4 rounded-lg bg-zinc-700 text-white text-sm hover:bg-zinc-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0">
+                        {updating ? '…' : 'Send'}
+                      </button>
+                    </div>
+                    {updateResult && (
+                      <p className={`text-xs ${updateResult.startsWith('Error') ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {updateResult}
+                      </p>
+                    )}
                   </div>
-                  {updateResult && (
-                    <p className={`text-xs ${updateResult.startsWith('Error') ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {updateResult}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                </div>
+              )}
+            </div>
 
-            {/* Session Summary */}
+            {/* Session summary */}
             {summary && (
-              <Card className="border-zinc-700">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Session Summary</CardTitle>
-                    <Badge variant={summary.end_reason === 'completed' ? 'default' : 'secondary'} className="text-xs">
-                      {summary.end_reason}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-zinc-300 leading-relaxed">{summary.narrative}</p>
-                  <Separator />
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Swaps</span><span>{summary.successful_swaps}/{summary.total_swaps}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Duration</span><span>{summary.duration_minutes}m</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Spent</span><span>{summary.total_spent} {summary.total_spent_token}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Received</span><span>~{summary.total_received} {summary.total_received_token}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Avg price</span><span>${summary.avg_price_usd}</span></div>
-                    {summary.best_swap && <div className="flex justify-between"><span className="text-muted-foreground">Best price</span><span className="text-emerald-400">${summary.best_swap.price}</span></div>}
-                    {summary.worst_swap && <div className="flex justify-between"><span className="text-muted-foreground">Worst price</span><span className="text-red-400">${summary.worst_swap.price}</span></div>}
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="rounded-xl border border-zinc-700/60 bg-zinc-900 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-medium tracking-[0.15em] text-zinc-500 uppercase">Session Summary</p>
+                  <Badge variant="secondary" className="text-[10px] px-2 py-0.5">{summary.end_reason}</Badge>
+                </div>
+                <p className="text-sm text-zinc-300 leading-relaxed">{summary.narrative}</p>
+                <Separator className="bg-zinc-800" />
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                  {[
+                    ['Swaps', `${summary.successful_swaps}/${summary.total_swaps}`],
+                    ['Duration', `${summary.duration_minutes}m`],
+                    ['Spent', `${summary.total_spent} ${summary.total_spent_token}`],
+                    ['Received', `~${summary.total_received} ${summary.total_received_token}`],
+                    ['Avg price', `$${summary.avg_price_usd}`],
+                  ].map(([k, v]) => (
+                    <div key={k} className="flex justify-between">
+                      <span className="text-zinc-500">{k}</span>
+                      <span className="tabular-nums text-zinc-200">{v}</span>
+                    </div>
+                  ))}
+                  {summary.best_swap && (
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Best</span>
+                      <span className="tabular-nums text-emerald-400">${summary.best_swap.price}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             {/* Errors */}
             {errors.length > 0 && (
-              <Alert variant="destructive">
-                <AlertDescription className="text-xs space-y-1">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-semibold">Errors ({errors.length})</span>
-                    <button onClick={() => setErrors([])} className="text-xs opacity-60 hover:opacity-100">Clear</button>
-                  </div>
-                  {errors.slice(0, 3).map((e, i) => <div key={i} className="break-all">{e}</div>)}
-                  {errors.length > 3 && <div className="opacity-60">+{errors.length - 3} more</div>}
-                </AlertDescription>
-              </Alert>
+              <div className="rounded-xl border border-red-900/30 bg-red-950/10 p-5">
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-xs text-red-400 font-medium">Errors ({errors.length})</p>
+                  <button onClick={() => setErrors([])} className="text-xs text-zinc-600 hover:text-zinc-400">Clear</button>
+                </div>
+                <div className="space-y-1">
+                  {errors.slice(0, 3).map((e, i) => (
+                    <p key={i} className="text-xs text-red-300 break-all">{e}</p>
+                  ))}
+                  {errors.length > 3 && <p className="text-xs text-zinc-600">+{errors.length - 3} more</p>}
+                </div>
+              </div>
             )}
+
           </div>
 
-          {/* ── RIGHT COLUMN ────────────────────────────────────────────── */}
-          <div className="space-y-5">
+          {/* ── RIGHT ── */}
+          <div className="flex flex-col gap-5">
 
             {/* Live Log */}
-            <Card className="flex flex-col">
-              <CardHeader className="pb-2 shrink-0">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Live Log</CardTitle>
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                      <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="w-3 h-3" />
-                      Auto-scroll
-                    </label>
-                    <button onClick={() => setLogs([])} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
-                    <span className="text-xs text-muted-foreground">{logs.length}</span>
-                  </div>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 flex-1">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[11px] font-medium tracking-[0.15em] text-zinc-500 uppercase">Live Log</p>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer select-none">
+                    <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} className="w-3 h-3" />
+                    Auto-scroll
+                  </label>
+                  <button onClick={() => setLogs([])} className="text-xs text-zinc-600 hover:text-zinc-400">Clear</button>
+                  <span className="text-xs text-zinc-700 tabular-nums w-5 text-right">{logs.length}</span>
                 </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <ScrollArea className="h-72 px-3 pb-3">
-                  {logs.length === 0 ? (
-                    <div className="text-xs text-muted-foreground text-center py-10">
-                      No logs — configure and start a session
-                    </div>
-                  ) : (
-                    <div className="space-y-0.5 font-mono text-xs leading-5">
-                      {logs.map(e => (
-                        <div key={e.id} className={`flex gap-2 ${LOG_COLOR[e.level]}`}>
-                          <span className="shrink-0 text-zinc-600 tabular-nums">{e.timestamp}</span>
-                          <span className="shrink-0">{LOG_PREFIX[e.level]}</span>
-                          <span className="break-all">{e.message}</span>
-                        </div>
-                      ))}
-                      <div ref={logEndRef} />
-                    </div>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
+              </div>
+              <div className="h-72 overflow-y-auto rounded-lg bg-zinc-950/60 border border-zinc-800/60">
+                {logs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2">
+                    <div className="text-2xl opacity-10">◈</div>
+                    <p className="text-xs text-zinc-700">Waiting for logs…</p>
+                  </div>
+                ) : (
+                  <div className="p-3 space-y-0.5 font-mono text-xs leading-5">
+                    {logs.map(e => (
+                      <div key={e.id} className={`flex gap-2 ${LOG_COLOR[e.level]}`}>
+                        <span className="shrink-0 text-zinc-700 tabular-nums">{e.timestamp}</span>
+                        <span className="shrink-0">{LOG_PREFIX[e.level]}</span>
+                        <span className="break-all">{e.message}</span>
+                      </div>
+                    ))}
+                    <div ref={logEndRef} />
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Swap History */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                  Swap History <span className="text-xs font-normal normal-case">({swaps.length})</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <ScrollArea className="h-64">
-                  {swaps.length === 0 ? (
-                    <div className="text-xs text-muted-foreground text-center py-10">No swaps recorded yet</div>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="border-zinc-800 hover:bg-transparent">
-                          <TableHead className="text-xs h-8 pl-4">Time</TableHead>
-                          <TableHead className="text-xs h-8">From</TableHead>
-                          <TableHead className="text-xs h-8">To</TableHead>
-                          <TableHead className="text-xs h-8">Price</TableHead>
-                          <TableHead className="text-xs h-8 pr-4">Tx</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {[...swaps].reverse().map(s => (
-                          <TableRow key={s.id} className="border-zinc-800 hover:bg-zinc-800/30">
-                            <TableCell className="text-xs pl-4 text-muted-foreground py-2 font-mono">
-                              {new Date(s.timestamp).toLocaleTimeString('en-US', { hour12: false })}
-                            </TableCell>
-                            <TableCell className="text-xs py-2">
-                              {s.from_amount ? `${parseFloat(s.from_amount).toFixed(5)} ${s.from_token}` : s.from_token}
-                            </TableCell>
-                            <TableCell className="text-xs py-2">
-                              {s.to_amount ? `${parseFloat(s.to_amount).toFixed(2)} ${s.to_token}` : s.to_token}
-                            </TableCell>
-                            <TableCell className="text-xs py-2">
-                              {s.price_usd ? `$${parseFloat(s.price_usd).toLocaleString()}` : '—'}
-                            </TableCell>
-                            <TableCell className="text-xs py-2 pr-4">
-                              {s.success && s.tx_hash ? (
-                                <a href={`https://basescan.org/tx/${s.tx_hash}`} target="_blank" rel="noopener noreferrer"
-                                  className="text-blue-400 hover:text-blue-300 font-mono">
-                                  {s.tx_hash.slice(0, 6)}…{s.tx_hash.slice(-4)}
-                                </a>
-                              ) : s.error ? (
-                                <span className="text-red-400 text-xs">failed</span>
-                              ) : '—'}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[11px] font-medium tracking-[0.15em] text-zinc-500 uppercase">Swap History</p>
+                <span className="text-xs text-zinc-700 tabular-nums">{swaps.length} swaps</span>
+              </div>
+              <div className="h-52 overflow-y-auto rounded-lg bg-zinc-950/60 border border-zinc-800/60">
+                {swaps.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2">
+                    <div className="text-2xl opacity-10">⛓</div>
+                    <p className="text-xs text-zinc-700">No swaps yet</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-zinc-800">
+                        <th className="text-left text-zinc-600 font-normal px-3 py-2">Time</th>
+                        <th className="text-left text-zinc-600 font-normal py-2">From</th>
+                        <th className="text-left text-zinc-600 font-normal py-2">To</th>
+                        <th className="text-left text-zinc-600 font-normal py-2">Price</th>
+                        <th className="text-left text-zinc-600 font-normal py-2 pr-3">Tx</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...swaps].reverse().map(s => (
+                        <tr key={s.id} className="border-b border-zinc-800/40 hover:bg-zinc-800/20">
+                          <td className="px-3 py-2 font-mono text-zinc-500">
+                            {new Date(s.timestamp).toLocaleTimeString('en-US', { hour12: false })}
+                          </td>
+                          <td className="py-2 text-zinc-300">
+                            {s.from_amount ? `${parseFloat(s.from_amount).toFixed(5)} ${s.from_token}` : s.from_token}
+                          </td>
+                          <td className="py-2 text-zinc-300">
+                            {s.to_amount ? `${parseFloat(s.to_amount).toFixed(2)} ${s.to_token}` : s.to_token}
+                          </td>
+                          <td className="py-2 tabular-nums text-zinc-300">
+                            {s.price_usd ? `$${parseFloat(s.price_usd).toLocaleString()}` : '—'}
+                          </td>
+                          <td className="py-2 pr-3">
+                            {s.success && s.tx_hash ? (
+                              <a href={`https://basescan.org/tx/${s.tx_hash}`} target="_blank" rel="noopener noreferrer"
+                                className="font-mono text-sky-400 hover:text-sky-300">
+                                {s.tx_hash.slice(0, 6)}…{s.tx_hash.slice(-4)}
+                              </a>
+                            ) : s.error ? <span className="text-red-400">failed</span> : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
 
-      {/* Confirmation Dialog */}
+      {/* ── Confirm Dialog ── */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-700 max-w-md">
+        <DialogContent className="bg-zinc-900 border border-zinc-700 rounded-xl max-w-md">
           <DialogHeader>
-            <DialogTitle>Confirm Session</DialogTitle>
-            <DialogDescription className="text-zinc-400 pt-2 leading-relaxed text-sm">
+            <DialogTitle className="text-white text-base">Confirm Session</DialogTitle>
+            <DialogDescription className="text-zinc-400 text-sm leading-relaxed pt-1">
               {confirmationText}
             </DialogDescription>
           </DialogHeader>
           {pendingConfig && (
-            <div className="rounded-md bg-zinc-800 px-3 py-2 text-xs font-mono text-zinc-300 space-y-1">
-              <div className="flex justify-between"><span className="text-zinc-500">Rule</span><Badge className={RULE_BADGE_CLASS[pendingConfig.rule_type]} >{RULE_LABELS[pendingConfig.rule_type]}</Badge></div>
-              <div className="flex justify-between"><span className="text-zinc-500">Pair</span><span>{pendingConfig.from_token} → {pendingConfig.to_token}</span></div>
-              <div className="flex justify-between"><span className="text-zinc-500">Amount</span><span>{pendingConfig.amount_per_swap_display || pendingConfig.amount_wei + ' wei'}</span></div>
-              <div className="flex justify-between"><span className="text-zinc-500">Interval</span><span>{pendingConfig.interval_minutes}min</span></div>
-              {pendingConfig.duration_minutes && <div className="flex justify-between"><span className="text-zinc-500">Duration</span><span>{pendingConfig.duration_minutes}min</span></div>}
-              {pendingConfig.total_swaps_planned && <div className="flex justify-between"><span className="text-zinc-500">Total swaps</span><span>{pendingConfig.total_swaps_planned}</span></div>}
-              {pendingConfig.price_threshold_usd && <div className="flex justify-between"><span className="text-zinc-500">Price {pendingConfig.price_condition}</span><span>${pendingConfig.price_threshold_usd}</span></div>}
+            <div className="rounded-lg bg-zinc-800/60 border border-zinc-700/40 p-4 text-xs space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-500">Rule</span>
+                <Badge className={`text-[10px] ${RULE_BADGE[pendingConfig.rule_type]}`}>{RULE_LABELS[pendingConfig.rule_type]}</Badge>
+              </div>
+              {[
+                ['Pair', `${pendingConfig.from_token} → ${pendingConfig.to_token}`],
+                ['Amount', pendingConfig.amount_per_swap_display || `${pendingConfig.amount_wei} wei`],
+                ['Interval', `${pendingConfig.interval_minutes} min`],
+                ...(pendingConfig.duration_minutes ? [['Duration', `${pendingConfig.duration_minutes} min`]] : []),
+                ...(pendingConfig.total_swaps_planned ? [['Total swaps', `${pendingConfig.total_swaps_planned}`]] : []),
+                ...(pendingConfig.price_threshold_usd ? [[`${pendingConfig.from_token} price ${pendingConfig.price_condition}`, `$${pendingConfig.price_threshold_usd}`]] : []),
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between">
+                  <span className="text-zinc-500">{k}</span>
+                  <span className="font-mono text-zinc-200">{v}</span>
+                </div>
+              ))}
             </div>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setConfirmOpen(false)}
-              className="border-zinc-700 bg-transparent hover:bg-zinc-800">Cancel</Button>
-            <Button size="sm" onClick={handleConfirm} disabled={confirming}
-              className="bg-emerald-700 hover:bg-emerald-600 text-white">
-              {confirming ? 'Starting...' : 'Confirm & Run'}
-            </Button>
+            <button onClick={() => setConfirmOpen(false)}
+              className="h-9 px-4 rounded-lg border border-zinc-700 bg-transparent text-zinc-400 text-sm hover:bg-zinc-800 transition-colors">
+              Cancel
+            </button>
+            <button onClick={handleConfirm} disabled={confirming}
+              className="h-9 px-5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 disabled:opacity-50 transition-colors">
+              {confirming ? 'Starting…' : 'Confirm & Run'}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

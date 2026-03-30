@@ -1,13 +1,10 @@
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Monospace font stack for terminal feel */
-body {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace,
-    SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+/* Monospace only for log/code elements */
+.font-mono {
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', Menlo, Monaco, Consolas, monospace;
 }
 
 /* Custom scrollbar for log feed */
@@ -98,7 +95,7 @@ body {
     --sidebar-ring: oklch(0.556 0 0);
   }
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
