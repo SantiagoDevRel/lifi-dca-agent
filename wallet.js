@@ -24,7 +24,7 @@ const account = privateKeyToAccount(process.env.PRIVATE_KEY);
 // (a "receipt" is the confirmation you get after a transaction is mined)
 const publicClient = createPublicClient({
     chain: base,
-    transport: http()
+    transport: http("https://mainnet.base.org")
   });
 
 // walletClient — connection that can sign and send transactions
@@ -32,7 +32,7 @@ const publicClient = createPublicClient({
 const walletClient = createWalletClient({
     account,
     chain: base,
-    transport: http()
+    transport: http("https://mainnet.base.org")
   });
 
 // getWalletAddress()

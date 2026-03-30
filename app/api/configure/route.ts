@@ -6,9 +6,11 @@
  * and avoids wallet.js module-load crash if PRIVATE_KEY is not needed yet).
  */
 import { NextRequest, NextResponse } from 'next/server'
-import path from 'path'
 import Anthropic from '@anthropic-ai/sdk'
 import { state, addLog, type AgentConfig } from '@/lib/agentState'
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const allToolDefs = require('../../../toolDefs') as Anthropic.Tool[]
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,10 +29,7 @@ export async function POST(req: NextRequest) {
 
     addLog('info', `Configuring: "${instruction}"`)
 
-    // Load only save_config tool def — no wallet dependency
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const toolDefs = require(path.join(process.cwd(), 'toolDefs.js')) as Anthropic.Tool[]
-    const saveConfigTool = toolDefs.find((t) => t.name === 'save_config')
+    const saveConfigTool = allToolDefs.find((t) => t.name === 'save_config')
     if (!saveConfigTool) {
       return NextResponse.json({ error: 'save_config tool definition not found' }, { status: 500 })
     }

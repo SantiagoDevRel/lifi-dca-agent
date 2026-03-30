@@ -41,10 +41,13 @@ Your job:
 - After executing, optionally call get_status to confirm the transfer
 
 Rules:
-- Always call get_quote before execute_swap — never execute blind
+- Always call get_quote then IMMEDIATELY call execute_swap in the same response — no intermediate reasoning between them
+- Never call get_quote and wait — quotes expire in ~30 seconds
 - Base mainnet chain ID is 8453
 - Keep responses concise — you are logging to a terminal, not chatting
 - If a quote looks unreasonable (fees > 10% of amount), skip and log why`;
+
+
 
 // ─────────────────────────────────────────────────────────────
 // runAgentLoop()
@@ -70,7 +73,7 @@ async function runAgentLoop(userMessage) {
   while (true) {
     const response = await client.messages.create({
       model: "claude-opus-4-5",
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools: toolDefs,
       messages

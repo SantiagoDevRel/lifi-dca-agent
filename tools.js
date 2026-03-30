@@ -25,39 +25,53 @@ const LIFI_BASE_URL = "https://li.quest/v1";
 // getQuote()
 // Calls LI.FI's /quote endpoint to get the best available route
 // for a token swap or bridge.
-// Returns the full quote object including transactionRequest
-// (i.e., ready-to-sign tx data) and estimated output amount.
+// Returns a trimmed result — Claude only sees the summary and key numbers,
+// not the raw hex data field (which is too large and causes max_tokens issues).
+// The full transactionRequest is preserved for execute_swap to use.
 // ─────────────────────────────────────────────────────────────
 async function getQuote({ fromChain, toChain, fromToken, toToken, fromAmount, fromAddress }) {
-  const params = new URLSearchParams({
-    fromChain,
-    toChain,
-    fromToken,
-    toToken,
-    fromAmount,
-    fromAddress,
-    // slippage of 0.5% — max acceptable price movement during execution
-    slippage: "0.005"
-  });
-
-  const response = await fetch(`${LIFI_BASE_URL}/quote?${params}`);
-  const data = await response.json();
-
-  // If LI.FI returns an error, surface it clearly
-  if (data.message) {
-    throw new Error(`LI.FI quote error: ${data.message}`);
+    const params = new URLSearchParams({
+      fromChain,
+      toChain,
+      fromToken,
+      toToken,
+      fromAmount,
+      fromAddress,
+      slippage: "0.005"
+    });
+  
+    const response = await fetch(`${LIFI_BASE_URL}/quote?${params}`);
+    const data = await response.json();
+  
+    if (data.message) {
+      throw new Error(`LI.FI quote error: ${data.message}`);
+    }
+  
+    const transactionRequest = data.transactionRequest;
+    const toAmountReadable = (data.estimate?.toAmount / 1e6).toFixed(2);
+    const feeCostUSD = data.estimate?.feeCosts?.[0]?.amountUSD ?? "unknown";
+    const gasCostUSD = data.estimate?.gasCosts?.[0]?.amountUSD ?? "unknown";
+  
+    return {
+      tool: data.tool,
+      toAmount: data.estimate?.toAmount,
+      toAmountMin: data.estimate?.toAmountMin,
+      feeCostUSD,
+      gasCostUSD,
+      // Full transactionRequest preserved so execute_swap can use it
+      // but Claude sees a clean summary instead of raw hex
+      transactionRequest: {
+        to: transactionRequest.to,
+        value: transactionRequest.value,
+        gasLimit: transactionRequest.gasLimit,
+        chainId: transactionRequest.chainId,
+        data: transactionRequest.data
+      },
+      // Human-readable summary — this is what Claude reasons on
+      summary: `Swap via ${data.tool}: 0.001 ETH → ~${toAmountReadable} USDC. Fee: $${feeCostUSD}, Gas: $${gasCostUSD}`
+    };
   }
-
-  return {
-    tool: data.tool,                          // bridge or DEX used (e.g. "stargate")
-    toAmount: data.estimate?.toAmount,        // expected output in wei
-    toAmountMin: data.estimate?.toAmountMin,  // minimum output after slippage
-    feeCosts: data.estimate?.feeCosts,        // array of fees
-    gasCosts: data.estimate?.gasCosts,        // estimated gas cost
-    transactionRequest: data.transactionRequest // ready-to-sign tx object
-  };
-}
-
+  
 // ─────────────────────────────────────────────────────────────
 // getStatus()
 // Polls LI.FI's /status endpoint to check if a cross-chain

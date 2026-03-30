@@ -10,31 +10,22 @@
  * which means the interval stops. For persistent loops, deploy to a
  * long-running server (Railway, Render, Fly.io) or use Vercel Cron Jobs.
  */
-import path from 'path'
 import Anthropic from '@anthropic-ai/sdk'
 import { state, addLog, addError, updateIterationCosts } from './agentState'
 
-// Lazy CJS imports — deferred until run time so wallet.js module-load
-// (which reads PRIVATE_KEY) only happens when the user actually clicks Run
-function getTools() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require(path.join(process.cwd(), 'tools.js')) as {
-    executeTool: (name: string, input: unknown) => Promise<unknown>
-  }
+// Static relative requires — webpack resolves these at compile time
+// (dynamic require(path.join(process.cwd(), ...)) is intercepted by webpack and fails at runtime)
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { executeTool } = require('../tools') as {
+  executeTool: (name: string, input: unknown) => Promise<unknown>
 }
-
-function getWallet() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require(path.join(process.cwd(), 'wallet.js')) as {
-    getWalletAddress: () => string
-    getETHBalance: () => Promise<string>
-  }
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { getWalletAddress, getETHBalance } = require('../wallet') as {
+  getWalletAddress: () => string
+  getETHBalance: () => Promise<string>
 }
-
-function getToolDefs() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require(path.join(process.cwd(), 'toolDefs.js')) as unknown[]
-}
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const toolDefs = require('../toolDefs') as unknown[]
 
 const SYSTEM_PROMPT = `You are an autonomous DCA (Dollar-Cost Averaging) agent managing a crypto wallet on Base mainnet.
 
@@ -59,9 +50,6 @@ function categorizeError(message: string): string {
 }
 
 async function runIteration() {
-  const { executeTool } = getTools()
-  const { getWalletAddress, getETHBalance } = getWallet()
-  const toolDefs = getToolDefs()
   const config = state.config
   if (!config) return
 
